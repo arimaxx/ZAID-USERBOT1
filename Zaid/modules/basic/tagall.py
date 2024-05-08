@@ -1,15 +1,14 @@
 from asyncio import sleep
-
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
-
 from Zaid.modules.help import add_command_help
 
-spam_chats = []
+spam_chats = set()  # Use a set for faster lookups
 
 
-def get_arg(message: Message):
+def get_arg(message: Message) -> str:
+    """Get the argument from the message"""
     msg = message.text
     msg = msg.replace(" ", "", 1) if msg[1] == " " else msg
     split = msg[1:].replace("\n", " \n").split(" ")
@@ -17,47 +16,67 @@ def get_arg(message: Message):
         return ""
     return " ".join(split[1:])
 
-@Client.on_message(filters.command("tagall", ".") & filters.me)
-async def mentionall(client: Client, message: Message):
+
+async def get_chat_members(client: Client, chat_id: int) -> list:
+    """Get a list of chat members"""
+    members = []
+    async for member in client.get_chat_members(chat_id):
+        members.append(member)
+    return members
+
+
+async def send_tagged_message(client: Client, chat_id: int, text: str) -> None:
+    """Send a message with tagged users"""
+    await client.send_message(chat_id, text)
+
+
+async def mentionall(client: Client, message: Message) -> None:
+    """Tag all members in a chat"""
     chat_id = message.chat.id
-    direp = message.reply_to_message
+    reply_to_message = message.reply_to_message
     args = get_arg(message)
-    if not direp and not args:
-        return await message.edit("**Send me a message or reply to a message!**")
+
+    if not reply_to_message and not args:
+        await message.edit("**Send me a message or reply to a message!**")
+        return
+
     await message.delete()
-    spam_chats.append(chat_id)
+    spam_chats.add(chat_id)
+
+    members = await get_chat_members(client, chat_id)
     usrnum = 0
     usrtxt = ""
-    async for usr in client.get_chat_members(chat_id):
-        if not chat_id in spam_chats:
-            break
+
+    for member in members:
         usrnum += 1
-        usrtxt += f"[{usr.user.first_name}](tg://user?id={usr.user.id}), "
+        usrtxt += f"[{member.user.first_name}](tg://user?id={member.user.id}), "
         if usrnum == 5:
             if args:
                 txt = f"{args}\n\n{usrtxt}"
-                await client.send_message(chat_id, txt)
-            elif direp:
-                await direp.reply(usrtxt)
+                await send_tagged_message(client, chat_id, txt)
+            elif reply_to_message:
+                await reply_to_message.reply(usrtxt)
             await sleep(2)
             usrnum = 0
             usrtxt = ""
+
     try:
         spam_chats.remove(chat_id)
-    except:
+    except KeyError:
         pass
 
 
-@Client.on_message(filters.command("cancel", ".") & filters.me)
-async def cancel_spam(client: Client, message: Message):
-    if not message.chat.id in spam_chats:
-        return await message.edit("**It seems there is no tagall here.**")
-    else:
-        try:
-            spam_chats.remove(message.chat.id)
-        except:
-            pass
-        return await message.edit("**Cancelled.**")
+async def cancel_spam(client: Client, message: Message) -> None:
+    """Cancel the tagall process"""
+    if message.chat.id not in spam_chats:
+        await message.edit("**It seems there is no tagall here.**")
+        return
+
+    try:
+        spam_chats.remove(message.chat.id)
+    except KeyError:
+        pass
+    await message.edit("**Cancelled.**")
 
 
 add_command_help(
@@ -69,7 +88,7 @@ add_command_help(
         ],
         [
             "cancel",
-            f"to stop .tagall",
+            f"to stop.tagall",
         ],
     ],
 )
